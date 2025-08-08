@@ -4,12 +4,39 @@ from collections import Counter
 import datetime
 import regex as re
 
+
+# def bytes_to_unicode():
+#     """
+#     Returns a dictionary mapping bytes (0-255) to unicode strings.
+#     This is the mapping used by GPT-2. It shifts unprintable bytes to a different
+#     unicode range to make them all printable.
+#     """
+#     # The first ranges are the printable ASCII characters
+#     bs = (
+#             list(range(ord("!"), ord("~") + 1)) +
+#             list(range(ord("¡"), ord("¬") + 1)) +
+#             list(range(ord("®"), ord("ÿ") + 1))
+#     )
+#
+#     cs = bs[:]
+#     n = 0
+#     # The loop handles the unprintable bytes
+#     for b in range(2 ** 8):
+#         if b not in bs:
+#             bs.append(b)
+#             cs.append(2 ** 8 + n)
+#             n += 1
+#
+#     cs = [chr(n) for n in cs]
+#
+#     return dict(zip(bs, cs))
+
 class BPE:
     def __init__(self, input_path: str, vocab_size: int, special_tokens: list[str] = None, num_processes: int = 10, mini_chunk_size: int = 4096,
                  desired_num_chunks: int = 40):
         self.input_path = input_path
         self.vocab_size = vocab_size
-        self.special_tokens = ['<|endoftext|>'] + (special_tokens or [])
+        self.special_tokens = list(set(['<|endoftext|>'] + (special_tokens or [])))
         self.split_special = re.compile('|'.join([re.escape(token) for token in self.special_tokens]))
         self.vocab = {}
         self.merges = []
@@ -21,7 +48,9 @@ class BPE:
 
         self._init_fill_vocab()
 
+
     def _init_fill_vocab(self):
+        # This works for 2 out of 3 tests
         for i in range(256):
             self.vocab[i] = bytes([i])
 
@@ -30,6 +59,30 @@ class BPE:
         for token_str in self.special_tokens:
             self.vocab[next_id] = token_str.encode("utf-8")
             next_id += 1
+
+
+    # def _init_fill_vocab(self):
+    #     """
+    #     Initializes the vocabulary using the specific GPT-2 byte mapping,
+    #     and places special tokens at the beginning.
+    #     """
+    #     # 1. Add special tokens first, starting from ID 0.
+    #     for i, token_str in enumerate(self.special_tokens):
+    #         self.vocab[i] = token_str.encode("utf-8")
+    #
+    #     # 2. Create the GPT-2 byte-to-unicode mapping.
+    #     byte_encoder = bytes_to_unicode()
+    #     unicode_to_byte = {v: k for k, v in byte_encoder.items()}
+    #
+    #     # 3. Add the 256 base byte tokens, starting after the special tokens.
+    #     #    The token ID is its rank in the sorted list of unicode characters.
+    #     start_id = len(self.vocab)
+    #     for i in range(256):
+    #         # Get the unicode character for this byte from the mapping
+    #         unicode_char = byte_encoder[i]
+    #         # The token ID is its rank + the starting ID
+    #         token_id = list(sorted(unicode_to_byte)).index(unicode_char) + start_id
+    #         self.vocab[token_id] = bytes([i])
 
 
     def get_vocab(self) -> dict[int, bytes]:
@@ -131,13 +184,22 @@ class BPE:
                 print('No more pairs to merge. Stopping early.')
                 break
 
-            best_pair = max(final_pair_counts, key=lambda pair: (final_pair_counts[pair], pair))
+            # best_pair = max(final_pair_counts, key=lambda pair: (final_pair_counts[pair], pair))
+            best_pair = max(final_pair_counts,
+                            key=lambda p: (final_pair_counts[p], self.vocab[p[0]], self.vocab[p[1]])
+                        )
             # print(f'Best pair to merge: {best_pair} with count {final_pair_counts[best_pair]}')
             # print(f' Best pair bytes: {self.vocab[best_pair[0]]} + {self.vocab[best_pair[1]]}')
             # print(f' my token1_bytes: {self.vocab[best_pair[0]]}, token2_bytes: {self.vocab[best_pair[1]]}')
             token1_bytes = self.vocab[best_pair[0]]
             token2_bytes = self.vocab[best_pair[1]]
             new_token_bytes = token1_bytes + token2_bytes
+            if new_token_bytes == b'ng':
+                print('Found "ng" token.')
+                print('merge number :', i + 1)
+                print('Best pair:', best_pair)
+                print('final_pair_counts:', final_pair_counts.most_common(5))
+                print('len(self.vocab):', len(self.vocab))
             # print(f' New token bytes: {new_token_bytes}')
             # print('=' * 20)
 
@@ -145,6 +207,11 @@ class BPE:
             new_token_id = len(self.vocab)
             self.vocab[new_token_id] = new_token_bytes
             self.merges.append((token1_bytes, token2_bytes))
+            # if len(self.merges) == 93:
+            #     print('='*20)
+            #     print(final_pair_counts.most_common(5))
+            #     print('Best pair:', best_pair)
+            #     print('=' * 20)
 
             word_structures, final_pair_counts = self._merge_and_update_counts(
                 word_structures,
@@ -348,7 +415,9 @@ def train_BPE_tokenizer(input_path: str, vocab_size: int, special_tokens: list[s
 
     # Run the main training logic
     tokenizer.run_BPE()  # This will call train_merges internally
-
+    print(tokenizer.get_vocab())
+    print('=' * 20)
+    print(tokenizer.merges)
     # Return the final vocabulary and merges in the required format
     return tokenizer.get_vocab(), tokenizer.merges
 
@@ -356,12 +425,17 @@ def train_BPE_tokenizer(input_path: str, vocab_size: int, special_tokens: list[s
 if __name__ == '__main__':
     start = datetime.datetime.now()
     # test = BPE(input_path='../data/debug_small_text.txt', vocab_size=270)
-    test = BPE(input_path='../data/smallest.txt', vocab_size=270)
+    # test = BPE(input_path='../data/smallest.txt', vocab_size=270)
     # test = BPE(input_path='../data/owt_train.txt', vocab_size=300)
+    test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/tests/fixtures/corpus.en',
+               vocab_size=500,
+               special_tokens=["<|endoftext|>"])
     test.run_BPE()
     end = datetime.datetime.now()
     print(f'Total time: {end - start}')
-    # print(test.get_vocab())
+    print(test.get_vocab())
+    print('='*20)
+    print(test.merges)
 
 
 
