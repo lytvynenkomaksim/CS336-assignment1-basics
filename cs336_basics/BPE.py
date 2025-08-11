@@ -5,32 +5,6 @@ import datetime
 import regex as re
 
 
-# def bytes_to_unicode():
-#     """
-#     Returns a dictionary mapping bytes (0-255) to unicode strings.
-#     This is the mapping used by GPT-2. It shifts unprintable bytes to a different
-#     unicode range to make them all printable.
-#     """
-#     # The first ranges are the printable ASCII characters
-#     bs = (
-#             list(range(ord("!"), ord("~") + 1)) +
-#             list(range(ord("¡"), ord("¬") + 1)) +
-#             list(range(ord("®"), ord("ÿ") + 1))
-#     )
-#
-#     cs = bs[:]
-#     n = 0
-#     # The loop handles the unprintable bytes
-#     for b in range(2 ** 8):
-#         if b not in bs:
-#             bs.append(b)
-#             cs.append(2 ** 8 + n)
-#             n += 1
-#
-#     cs = [chr(n) for n in cs]
-#
-#     return dict(zip(bs, cs))
-
 class BPE:
     def __init__(self, input_path: str, vocab_size: int, special_tokens: list[str] = None, num_processes: int = 10, mini_chunk_size: int = 4096,
                  desired_num_chunks: int = 40):
@@ -59,30 +33,6 @@ class BPE:
         for token_str in self.special_tokens:
             self.vocab[next_id] = token_str.encode("utf-8")
             next_id += 1
-
-
-    # def _init_fill_vocab(self):
-    #     """
-    #     Initializes the vocabulary using the specific GPT-2 byte mapping,
-    #     and places special tokens at the beginning.
-    #     """
-    #     # 1. Add special tokens first, starting from ID 0.
-    #     for i, token_str in enumerate(self.special_tokens):
-    #         self.vocab[i] = token_str.encode("utf-8")
-    #
-    #     # 2. Create the GPT-2 byte-to-unicode mapping.
-    #     byte_encoder = bytes_to_unicode()
-    #     unicode_to_byte = {v: k for k, v in byte_encoder.items()}
-    #
-    #     # 3. Add the 256 base byte tokens, starting after the special tokens.
-    #     #    The token ID is its rank in the sorted list of unicode characters.
-    #     start_id = len(self.vocab)
-    #     for i in range(256):
-    #         # Get the unicode character for this byte from the mapping
-    #         unicode_char = byte_encoder[i]
-    #         # The token ID is its rank + the starting ID
-    #         token_id = list(sorted(unicode_to_byte)).index(unicode_char) + start_id
-    #         self.vocab[token_id] = bytes([i])
 
 
     def get_vocab(self) -> dict[int, bytes]:
@@ -177,9 +127,12 @@ class BPE:
             return 0
 
         print(f'\n--- Starting BPE Merges (need {num_merges_needed}) ---')
-
+        merge_1000_start = datetime.datetime.now()
         for i in range(num_merges_needed):
-            # print(f'Starting merge {i + 1}/{num_merges_needed}...')
+            if i % 1_000 == 0:
+                merge_1000_end = datetime.datetime.now()
+                print(f'Starting merge {i + 1}/{num_merges_needed}..., time for last 1000 merges: {merge_1000_end - merge_1000_start}')
+                merge_1000_start = datetime.datetime.now()
             if not final_pair_counts:
                 print('No more pairs to merge. Stopping early.')
                 break
@@ -194,24 +147,9 @@ class BPE:
             token1_bytes = self.vocab[best_pair[0]]
             token2_bytes = self.vocab[best_pair[1]]
             new_token_bytes = token1_bytes + token2_bytes
-            if new_token_bytes == b'ng':
-                print('Found "ng" token.')
-                print('merge number :', i + 1)
-                print('Best pair:', best_pair)
-                print('final_pair_counts:', final_pair_counts.most_common(5))
-                print('len(self.vocab):', len(self.vocab))
-            # print(f' New token bytes: {new_token_bytes}')
-            # print('=' * 20)
-
-
             new_token_id = len(self.vocab)
             self.vocab[new_token_id] = new_token_bytes
             self.merges.append((token1_bytes, token2_bytes))
-            # if len(self.merges) == 93:
-            #     print('='*20)
-            #     print(final_pair_counts.most_common(5))
-            #     print('Best pair:', best_pair)
-            #     print('=' * 20)
 
             word_structures, final_pair_counts = self._merge_and_update_counts(
                 word_structures,
@@ -219,21 +157,8 @@ class BPE:
                 best_pair,
                 new_token_id
             )
-            # word_structures = self._merge_and_update_counts(
-            #     word_structures,
-            #     final_pair_counts,
-            #     best_pair,
-            #     new_token_id
-            # )
-            # print('New word structures after merge:')
-            # for word in word_structures:
-            #     print(f'Word: {word}, Count: {word_structures[word]}')
-
-            # if (i + 1) % 50 == 0:
-            #     print(f'  Merge {i + 1}/{num_merges_needed}: Merged {best_pair} -> {new_token_id} ({new_token_bytes})')
 
         print(f'--- BPE training complete. Final vocabulary size: {len(self.vocab)} ---')
-
 
 
     def _merge_and_update_counts(self, word_structures: dict, pair_counts: dict, best_pair: tuple,
@@ -275,7 +200,7 @@ class BPE:
 
         return word_structures, pair_counts
 
-    def _merge_word_with_index(self, word: tuple, best_pair: tuple, new_token_id: int) -> tuple[tuple, set, set]:
+    def _merge_word_with_index(self, word: tuple, best_pair: tuple, new_token_id: int) -> tuple[tuple, list, list]:
         byte_1, byte_2 = best_pair
 
         new_word = []
@@ -304,64 +229,7 @@ class BPE:
                 new_word.append(word[i])
                 i += 1
 
-        return tuple(new_word), set(old_pairs), set(new_pairs)
-
-
-
-    # def _merge_and_update_counts(self, word_structures, pair_counts, best_pair, new_token_id)-> dict:
-    #     new_word_structures = {}
-    #     affected_words = {}  # Store {old_word: new_word} for words that changed
-    #
-    #     # --- Pass 1: Find all affected words and create their new structure ---
-    #     for word, count in word_structures.items():
-    #         if len(word) < 2:
-    #             new_word_structures[word] = count
-    #             continue
-    #
-    #         # Build the new word by replacing all instances of the best_pair
-    #         i = 0
-    #         new_word = []
-    #         has_changed = False
-    #         while i < len(word):
-    #             if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
-    #                 new_word.append(new_token_id)
-    #                 i += 2
-    #                 has_changed = True
-    #             else:
-    #                 new_word.append(word[i])
-    #                 i += 1
-    #
-    #         if has_changed:
-    #             # This word was affected. Store the old and new versions.
-    #             affected_words[word] = tuple(new_word)
-    #         else:
-    #             # This word was not affected, so it carries over directly.
-    #             new_word_structures[word] = count
-    #
-    #     # --- Pass 2: Update counts and the final structure based on affected words ---
-    #     for old_word, new_word in affected_words.items():
-    #         count = word_structures[old_word]
-    #
-    #         # Decrement counts for all pairs in the old word
-    #         for i in range(len(old_word) - 1):
-    #             pair = (old_word[i], old_word[i + 1])
-    #             pair_counts[pair] -= count
-    #             if pair_counts[pair] == 0:
-    #                 del pair_counts[pair]
-    #
-    #         # Increment counts for all pairs in the new word
-    #         for i in range(len(new_word) - 1):
-    #             pair = (new_word[i], new_word[i + 1])
-    #             pair_counts[pair] = pair_counts.get(pair, 0) + count
-    #
-    #         # Add the new, merged word to the final structures, aggregating counts
-    #         new_word_structures[new_word] = new_word_structures.get(new_word, 0) + count
-    #
-    #     # The original pair has now been fully replaced and its count should be zero.
-    #     if best_pair in pair_counts:
-    #         del pair_counts[best_pair]
-    #
-    #     return new_word_structures
+        return tuple(new_word), old_pairs, new_pairs
 
     def run_BPE(self):
         print(f'Number of actual chunks {len(self.data_chunks_boundaries)-1} chunks.')
@@ -398,27 +266,16 @@ class BPE:
         end_time = datetime.datetime.now()
         print(f'Time to combine all structures: {end_time - start_time}')
 
-        # print(f'Initial unique pairs: {len(final_pair_counts)}')
-
-        # print('='*20)
-        # print('Initial word structures:', word_structures)
-        print('\n')
-        # print(f'Top 15 initial pairs: {final_pair_counts.most_common(15)}')
-
         self.train_merges(word_structures, final_pair_counts)
 
 
 def train_BPE_tokenizer(input_path: str, vocab_size: int, special_tokens: list[str]) -> tuple[
     dict[int, bytes], list[tuple[bytes, bytes]]]:
-    # You can pass other parameters like num_processes if you want
+    start = datetime.datetime.now()
     tokenizer = BPE(input_path=input_path, vocab_size=vocab_size, special_tokens=special_tokens)
-
-    # Run the main training logic
     tokenizer.run_BPE()  # This will call train_merges internally
-    print(tokenizer.get_vocab())
-    print('=' * 20)
-    print(tokenizer.merges)
-    # Return the final vocabulary and merges in the required format
+    end = datetime.datetime.now()
+    print(f'Time to train BPE tokenizer: {end - start}')
     return tokenizer.get_vocab(), tokenizer.merges
 
 
@@ -427,15 +284,26 @@ if __name__ == '__main__':
     # test = BPE(input_path='../data/debug_small_text.txt', vocab_size=270)
     # test = BPE(input_path='../data/smallest.txt', vocab_size=270)
     # test = BPE(input_path='../data/owt_train.txt', vocab_size=300)
-    test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/tests/fixtures/corpus.en',
-               vocab_size=500,
-               special_tokens=["<|endoftext|>"])
+    # test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/tests/fixtures/corpus.en',
+    #            vocab_size=500,
+    #            special_tokens=["<|endoftext|>"])
+    # test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/TinyStoriesV2-GPT4-train.txt',
+    #            vocab_size=10_000,
+    #            special_tokens=["<|endoftext|>"])
+    test = BPE(
+        input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/owt_train.txt',
+        vocab_size=32_000,
+        special_tokens=["<|endoftext|>"], num_processes=14)
     test.run_BPE()
     end = datetime.datetime.now()
     print(f'Total time: {end - start}')
-    print(test.get_vocab())
-    print('='*20)
-    print(test.merges)
+    with open('vocab_owt.txt', 'w') as f:
+        f.write(str(test.get_vocab()))
+    with open('merges_owt.txt', 'w') as f:
+        f.write(str(test.merges))
+    # print(test.get_vocab())
+    # print('='*20)
+    # print(test.merges)
 
 
 

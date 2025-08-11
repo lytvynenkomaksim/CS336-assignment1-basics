@@ -140,11 +140,6 @@ class Snapshot:
             expected_data = pickle.load(f)
 
         if isinstance(actual, dict):
-            print('='*20, 'Actual')
-            print(actual)
-            print('='*20, 'Expected')
-            print(expected_data)
-            print('='*20)
             for key in actual:
                 if key not in expected_data:
                     raise AssertionError(f"Key '{key}' not found in snapshot for {test_name}")
