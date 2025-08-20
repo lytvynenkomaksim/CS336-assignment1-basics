@@ -24,7 +24,6 @@ class BPE:
 
 
     def _init_fill_vocab(self):
-        # This works for 2 out of 3 tests
         for i in range(256):
             self.vocab[i] = bytes([i])
 
@@ -88,7 +87,7 @@ class BPE:
     def _process_chunk_and_get_pairs(self, args):
         start, end = args
 
-        # --- Part 1: Get word counts (from your _process_chunk) ---
+        # Get word counts
         start_time = datetime.datetime.now()
         word_counts = Counter()
         with open(self.input_path, 'rb') as file:
@@ -101,7 +100,7 @@ class BPE:
         end_time = datetime.datetime.now()
         # print(f'Time to process chunk and get word counts: {end_time - start_time}')
 
-        # --- Part 2: Get pair counts (from your _get_pairs_from_chunk) ---
+        # Get pair counts
         word_structures_chunk = {}
         start_time = datetime.datetime.now()
         pair_counts = Counter()
@@ -137,7 +136,6 @@ class BPE:
                 print('No more pairs to merge. Stopping early.')
                 break
 
-            # best_pair = max(final_pair_counts, key=lambda pair: (final_pair_counts[pair], pair))
             best_pair = max(final_pair_counts,
                             key=lambda p: (final_pair_counts[p], self.vocab[p[0]], self.vocab[p[1]])
                         )
@@ -171,7 +169,6 @@ class BPE:
         words_to_increment = Counter()
         words_to_decrement = Counter()
         # print(f'Merging pair: {byte_1} + {byte_2} into new token ID: {new_token_id}')
-        temp_dict_to_replace = {}
         for word, count in word_structures.items():
             # print(f'word: {word}, count: {count}')
             if len(word) < 2:
@@ -253,7 +250,6 @@ class BPE:
         print('Combining results...')
         start_time = datetime.datetime.now()
 
-        # These will be the complete data structures you need for the merge loop
         word_structures = {}
         final_pair_counts = Counter()
 
@@ -278,7 +274,6 @@ def train_BPE_tokenizer(input_path: str, vocab_size: int, special_tokens: list[s
     print(f'Time to train BPE tokenizer: {end - start}')
     return tokenizer.get_vocab(), tokenizer.merges
 
-
 if __name__ == '__main__':
     start = datetime.datetime.now()
     # test = BPE(input_path='../data/debug_small_text.txt', vocab_size=270)
@@ -287,19 +282,19 @@ if __name__ == '__main__':
     # test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/tests/fixtures/corpus.en',
     #            vocab_size=500,
     #            special_tokens=["<|endoftext|>"])
-    # test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/TinyStoriesV2-GPT4-train.txt',
-    #            vocab_size=10_000,
-    #            special_tokens=["<|endoftext|>"])
-    test = BPE(
-        input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/owt_train.txt',
-        vocab_size=32_000,
-        special_tokens=["<|endoftext|>"], num_processes=14)
+    test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/TinyStoriesV2-GPT4-train.txt',
+               vocab_size=10_000,
+               special_tokens=["<|endoftext|>"], num_processes=14)
+    # test = BPE(
+    #     input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/owt_train.txt',
+    #     vocab_size=32_000,
+    #     special_tokens=["<|endoftext|>"], num_processes=14)
     test.run_BPE()
     end = datetime.datetime.now()
     print(f'Total time: {end - start}')
-    with open('vocab_owt.txt', 'w') as f:
+    with open('vocab_ts.txt', 'w') as f:
         f.write(str(test.get_vocab()))
-    with open('merges_owt.txt', 'w') as f:
+    with open('merges_ts.txt', 'w') as f:
         f.write(str(test.merges))
     # print(test.get_vocab())
     # print('='*20)
