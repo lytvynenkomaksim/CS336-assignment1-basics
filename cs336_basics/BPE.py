@@ -3,6 +3,7 @@ import multiprocessing as mp
 from collections import Counter
 import datetime
 import regex as re
+import json
 
 
 class BPE:
@@ -291,12 +292,23 @@ if __name__ == '__main__':
     #     special_tokens=["<|endoftext|>"], num_processes=14)
     test.run_BPE()
     end = datetime.datetime.now()
-    print(f'Total time: {end - start}')
-    with open('vocab_ts.txt', 'w') as f:
-        f.write(str(test.get_vocab()))
-    with open('merges_ts.txt', 'w') as f:
-        f.write(str(test.merges))
-    # print(test.get_vocab())
+
+    # Incorrect, don't save as text, save with json or other serialization
+    # print(f'Total time: {end - start}')
+    # with open('vocab_ts.json', 'w') as f:
+    #     # f.write(str(test.get_vocab()))
+    #     json.dump(test.get_vocab(), f)
+    # with open('merges_ts.json', 'w') as f:
+    #     # f.write(str(test.merges))
+    #     json.dump(test.merges, f)
+
+    with open("vocab_ts.json", "w") as f:
+        json.dump({k: v.decode("latin1") for k, v in test.vocab.items()}, f)
+
+    with open("merges_ts.json", "w") as f:
+        json.dump([(a.decode("latin1"), b.decode("latin1")) for a, b in test.merges], f)
+
+        # print(test.get_vocab())
     # print('='*20)
     # print(test.merges)
 
