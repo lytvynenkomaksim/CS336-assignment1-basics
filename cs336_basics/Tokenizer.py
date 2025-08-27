@@ -3,8 +3,7 @@ from collections.abc import Iterator, Iterable
 import regex as re
 import datetime
 import os
-
-
+from functools import lru_cache
 
 
 
@@ -12,7 +11,7 @@ import os
 # at [adapters.get_tokenizer]. Then, run uv run pytest tests/test_tokenizer.py.
 class Tokenizer:
 
-    def __init__(self, vocab: dict, merges: list[tuple], special_tokens:list[str]=None, num_processes: int = 10, mini_chunk_size: int = 4096,
+    def __init__(self, vocab: dict, id_of: dict, merges: list[tuple], special_tokens:list[str]=None, num_processes: int = 10, mini_chunk_size: int = 4096,
                  desired_num_chunks: int = 1):
         # Construct a tokenizer from a given
         # vocabulary, list of merges, and (optionally) a list of special tokens. This function should accept the following parameters:
@@ -20,6 +19,7 @@ class Tokenizer:
         # merges: list[tuple[bytes, bytes]]
         # special_tokens: list[str] | None = None
         self.vocab = vocab
+        self.id_of = id_of
         self.merges = merges
         self.special_tokens = list(set(['<|endoftext|>'] + (special_tokens or [])))
         self.split_special = re.compile('('+'|'.join([re.escape(token) for token in self.special_tokens])+')')
@@ -28,6 +28,8 @@ class Tokenizer:
         self.mini_chunk_size = mini_chunk_size
         self.PAT = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""",
                               flags=re.UNICODE)
+        self.SINGLE = [bytes([i]) for i in range(256)]
+        self.rank: dict[tuple[bytes, bytes], int] = {pair: i for i, pair in enumerate(self.merges)}
 
     @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
@@ -40,12 +42,13 @@ class Tokenizer:
         with open(vocab_filepath, "r", encoding="utf-8") as f:
             vocab_json = json.load(f)
             vocab = {int(k): v.encode("latin1") for k, v in vocab_json.items()}
+            id_of: dict[bytes, int] = {b: i for i, b in vocab.items()}  # bytes -> id
 
         with open(merges_filepath, "r", encoding="utf-8") as f:
             merges_json = json.load(f)
             merges = [(l.encode("latin1"), r.encode("latin1")) for (l, r) in merges_json]
 
-        return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
+        return cls(vocab=vocab, id_of=id_of, merges=merges, special_tokens=special_tokens)
 
 
     def _split_chunks_file(self, input_path) -> list[int]:
@@ -141,8 +144,19 @@ class Tokenizer:
             with open(input_path, 'rb') as file:
                 file.seek(start)
                 chunk_txt = file.read(end - start).decode("utf-8", errors="ignore")
-
+            print(f'input text: {chunk_txt}')
+            print('='*40)
             encoded_sequence = self.encode(chunk_txt)
+            print(f'Encoded sequence length: {len(encoded_sequence)}')
+            print(f'encoded sequence: {encoded_sequence}')
+            print('='*40)
+            test = []
+            for e in encoded_sequence:
+                test.append(self.vocab[e].decode('utf-8'))
+            test_str = ''.join(test)
+            print(test_str)
+            print('='*40)
+            print(chunk_txt == test_str)
 
         elif text:
             boundaries = self._split_chunks_text(text)
@@ -153,25 +167,55 @@ class Tokenizer:
             start = chunk_args[0][0]
             end = chunk_args[-1][1]
             encoded_sequence = self.encode(text[start:end])
-
+            print(f'Encoded sequence length: {len(encoded_sequence)}')
+            print(f'encoded sequence: {encoded_sequence}')
 
     def encode(self, text: str) -> list[int]:
         # Encode an input text into a sequence of token IDs.
+        out: list[int] = []
 
         # Get all words' parts using regex. keep special tokens as they are
         text_by_special_tokens = self.split_special.split(text)
-        words = []
+
         for text_chunk in text_by_special_tokens:
-            if text_chunk in self.special_tokens:
-                words.append(text_chunk)
+            if not text_chunk:
                 continue
-            else:
-                words += self.PAT.findall(text_chunk)
-        print(words)
-        # Start encoding
+            if text_chunk in self.special_tokens:
+                out.append(self.id_of[text_chunk.encode("utf-8")])
+                continue
+            for word in self.PAT.finditer(text_chunk):
+                word_b = word.group().encode('utf-8')
+                out.extend(self._encode_pretoken_bytes_cached(word_b))
 
+        return out
 
+    @lru_cache(maxsize=100_000)
+    def _encode_pretoken_bytes_cached(self, word_b: bytes) -> tuple[int, ...]:
+        return tuple(self._encode_pretoken_bytes_greedy(word_b))
 
+    def _encode_pretoken_bytes_greedy(self, word_b: bytes) -> list[int]:
+        n = len(word_b)
+        if n == 0:
+            return []
+        if n == 1:
+            return [self.id_of[self.SINGLE[word_b[0]]]]
+
+        syms = [self.SINGLE[x] for x in word_b]  # list[bytes] of length-1 chunks
+        # repeatedly merge lowest-rank adjacent pair
+        while True:
+            best_i = -1
+            best_rank = None
+            for i in range(len(syms) - 1):
+                r = self.rank.get((syms[i], syms[i + 1]))
+                if r is None:
+                    continue
+                if best_rank is None or r < best_rank:
+                    best_rank = r
+                    best_i = i
+            if best_i < 0:
+                break
+            syms[best_i:best_i + 2] = [syms[best_i] + syms[best_i + 1]]
+        return [self.id_of[s] for s in syms]
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
         # Given an iterable of
