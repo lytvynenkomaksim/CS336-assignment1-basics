@@ -4,6 +4,7 @@ import regex as re
 import datetime
 import os
 from functools import lru_cache
+import multiprocessing as mp
 
 
 
@@ -118,7 +119,7 @@ class Tokenizer:
 
         for bi in range(1, len(chunk_boundaries) - 1):
             initial_position = chunk_boundaries[bi]
-            next_token_position = text[initial_position:].find()
+            next_token_position = text[initial_position:].find(split_special_token)
             if next_token_position == -1:
                 chunk_boundaries[bi] = text_len
                 break
@@ -222,11 +223,25 @@ class Tokenizer:
         # strings (e.g., a Python file handle), return a generator that lazily yields token IDs. This is
         # required for memory-eﬀicient tokenization of large files that we cannot directly load into
         # memory.
-        pass
+        for text in iterable:
+            text_by_special_tokens = self.split_special.split(text)
+
+            for text_chunk in text_by_special_tokens:
+                if not text_chunk:
+                    continue
+                if text_chunk in self.special_tokens:
+                    yield self.id_of[text_chunk.encode("utf-8")]
+                    continue
+                for word in self.PAT.finditer(text_chunk):
+                    word_b = word.group().encode('utf-8')
+                    yield from self._encode_pretoken_bytes_cached(word_b)
 
     def decode(self, ids: list[int]) -> str:
         # Decode a sequence of token IDs into text.
-        pass
+        decoded_chars = []
+        for id in ids:
+            decoded_chars.append(self.vocab[id].decode('utf-8'))
+        return ''.join(decoded_chars)
 
 
 test = Tokenizer.from_files(r'/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/cs336_basics/vocab_ts.json',
