@@ -6,9 +6,33 @@ import regex as re
 import json
 
 
-class BPE:
+class BPETrainer:
     def __init__(self, input_path: str, vocab_size: int, special_tokens: list[str] = None, num_processes: int = 10, mini_chunk_size: int = 4096,
                  desired_num_chunks: int = 40):
+        """
+        Binary Pair Encoding (BPE) trainer.
+        
+        Args:
+            input_path: str - path to the input file to train on
+            vocab_size: int - desired size of the final vocabulary
+            special_tokens: list[str] - list of special tokens to include in vocabulary (default: None)
+            num_processes: int - number of parallel processes to use (default: 10)
+            mini_chunk_size: int - size of mini chunks for processing (default: 4096)
+            desired_num_chunks: int - target number of chunks to split input into (default: 40)
+
+        Attributes:
+            input_path: str - path to input training file
+            vocab_size: int - target vocabulary size
+            special_tokens: list[str] - list of special tokens including default '<|endoftext|>'
+            split_special: re.Pattern - compiled regex pattern for splitting on special tokens
+            vocab: dict - mapping of token IDs to byte sequences
+            merges: list - sequence of merge operations performed
+            num_processes: int - number of parallel processes
+            desired_num_chunks: int - target number of input chunks
+            mini_chunk_size: int - size of mini chunks for processing
+            data_chunks_boundaries: list[int] - byte positions of chunk boundaries
+            PAT: re.Pattern - compiled regex pattern for tokenization
+        """
         self.input_path = input_path
         self.vocab_size = vocab_size
         self.special_tokens = list(set(['<|endoftext|>'] + (special_tokens or [])))
@@ -23,7 +47,6 @@ class BPE:
 
         self._init_fill_vocab()
 
-
     def _init_fill_vocab(self):
         for i in range(256):
             self.vocab[i] = bytes([i])
@@ -33,7 +56,6 @@ class BPE:
         for token_str in self.special_tokens:
             self.vocab[next_id] = token_str.encode("utf-8")
             next_id += 1
-
 
     def get_vocab(self) -> dict[int, bytes]:
         return self.vocab
@@ -84,9 +106,19 @@ class BPE:
             # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
             return sorted(set(chunk_boundaries))
 
+    def _process_chunk_and_get_pairs(self, boundaries) -> tuple[dict, dict]:
+        """
+        Process a chunk of text data to extract word structures and pair counts.
 
-    def _process_chunk_and_get_pairs(self, args):
-        start, end = args
+        Args:
+            boundaries: tuple(int, int) - start and end byte positions of the chunk to process
+
+        Returns:
+            tuple containing:
+                - word_structures_chunk: dict mapping byte tuples (words) to their counts
+                - pair_counts: dict mapping byte pairs to their frequency counts
+        """
+        start, end = boundaries
 
         # Get word counts
         start_time = datetime.datetime.now()
@@ -209,7 +241,6 @@ class BPE:
         while i < len(word):
             if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
                 # Found the pair to merge!
-
                 # If there's a token before, the pair (prev, byte_1) becomes (prev, new_token_id)
                 if i > 0:
                     old_pairs.append((word[i - 1], byte_1))
@@ -269,7 +300,7 @@ class BPE:
 def train_BPE_tokenizer(input_path: str, vocab_size: int, special_tokens: list[str]) -> tuple[
     dict[int, bytes], list[tuple[bytes, bytes]]]:
     start = datetime.datetime.now()
-    tokenizer = BPE(input_path=input_path, vocab_size=vocab_size, special_tokens=special_tokens)
+    tokenizer = BPETrainer(input_path=input_path, vocab_size=vocab_size, special_tokens=special_tokens)
     tokenizer.run_BPE()  # This will call train_merges internally
     end = datetime.datetime.now()
     print(f'Time to train BPE tokenizer: {end - start}')
@@ -283,9 +314,9 @@ if __name__ == '__main__':
     # test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/tests/fixtures/corpus.en',
     #            vocab_size=500,
     #            special_tokens=["<|endoftext|>"])
-    test = BPE(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/TinyStoriesV2-GPT4-train.txt',
-               vocab_size=10_000,
-               special_tokens=["<|endoftext|>"], num_processes=14)
+    test = BPETrainer(input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/TinyStoriesV2-GPT4-train.txt',
+                      vocab_size=10_000,
+                      special_tokens=["<|endoftext|>"], num_processes=14)
     # test = BPE(
     #     input_path='/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/owt_train.txt',
     #     vocab_size=32_000,

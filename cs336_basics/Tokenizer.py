@@ -4,9 +4,6 @@ import regex as re
 import datetime
 import os
 from functools import lru_cache
-import multiprocessing as mp
-
-
 
 # To test your Tokenizer against our provided tests, you will first need to implement the test adapter
 # at [adapters.get_tokenizer]. Then, run uv run pytest tests/test_tokenizer.py.
@@ -49,7 +46,6 @@ class Tokenizer:
             merges = [(l.encode("latin1"), r.encode("latin1")) for (l, r) in merges_json]
 
         return cls(vocab=vocab, merges=merges, special_tokens=special_tokens)
-
 
     def _split_chunks_file(self, input_path) -> list[int]:
         start_time = datetime.datetime.now()
@@ -131,42 +127,6 @@ class Tokenizer:
         # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
         return sorted(set(chunk_boundaries))
 
-
-    def encode_parallel(self, input_path:str=None, text:str=None):
-        if input_path:
-            boundaries = self._split_chunks_file(input_path)
-            chunk_args = []
-            for start, end in zip(boundaries[:-1], boundaries[1:]):
-                chunk_args.append((start, end))
-            start, end = chunk_args[0]
-            with open(input_path, 'rb') as file:
-                file.seek(start)
-                chunk_txt = file.read(end - start).decode("utf-8", errors="ignore")
-            print(f'input text: {chunk_txt}')
-            print('='*40)
-            encoded_sequence = self.encode(chunk_txt)
-            print(f'Encoded sequence length: {len(encoded_sequence)}')
-            print(f'encoded sequence: {encoded_sequence}')
-            print('='*40)
-            test = []
-            for e in encoded_sequence:
-                test.append(self.vocab[e].decode('utf-8'))
-            test_str = ''.join(test)
-            print(test_str)
-            print('='*40)
-            print(chunk_txt == test_str)
-
-        elif text:
-            boundaries = self._split_chunks_text(text)
-            chunk_args = []
-            for start, end in zip(boundaries[:-1], boundaries[1:]):
-                chunk_args.append((start, end))
-            start = chunk_args[0][0]
-            end = chunk_args[-1][1]
-            encoded_sequence = self.encode(text[start:end])
-            print(f'Encoded sequence length: {len(encoded_sequence)}')
-            print(f'encoded sequence: {encoded_sequence}')
-
     def encode(self, text: str) -> list[int]:
         # Encode an input text into a sequence of token IDs.
         out: list[int] = []
@@ -242,15 +202,4 @@ class Tokenizer:
 # test = Tokenizer.from_files(r'/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/cs336_basics/vocab_ts.json',
 #                                 r'/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/cs336_basics/merges_ts.json',
 #                                 )
-# test.encode_parallel(input_path=r'/Users/maksymlytvynenko/Work/Stanford/CS336/Assignment1-basics/data/debug_couple_stories.txt')
-# text_test = '''Once upon a time there was a little boy named Ben. Ben loved to explore the world around him. He saw many amazing things, like beautiful vases that were on display in a store. One day, Ben was walking through the store when he came across a very special vase. When Ben saw it he was amazed!
-# He said, “Wow, that is a really amazing vase! Can I buy it?”
-# The shopkeeper smiled and said, “Of course you can. You can take it home and show all your friends how amazing it is!”
-# So Ben took the vase home and he was so proud of it! He called his friends over and showed them the amazing vase. All his friends thought the vase was beautiful and couldn't believe how lucky Ben was.
-# And that's how Ben found an amazing vase in the store!
-# <|endoftext|>
-# Once upon a time, there was a reliable otter named Ollie. He lived in a river with his family. They all loved to play and swim together.
-# One day, Ollie's mom said, "Ollie, hurry and get some fish for dinner!" Ollie swam fast to catch fish. He saw his friend, the duck. "Hi, Ollie!" said the duck. "Hi, duck!" said Ollie. "I need to hurry and catch fish for my family."
-# While Ollie was catching fish, he found a big shiny stone. He thought, "This is not a fish, but it is so pretty!" Ollie took the shiny stone home to show his family. They all looked at the shiny stone and smiled. The shiny stone made everyone happy, and they forgot about the fish for dinner.
-# <|endoftext|>'''
-# test.encode_parallel(text=text_test)
+

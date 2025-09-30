@@ -9,7 +9,7 @@ import numpy.typing as npt
 import torch
 from torch import Tensor
 
-from cs336_basics.BPE import train_BPE_tokenizer
+from cs336_basics.BPETrainer import train_BPE_tokenizer
 import cs336_basics.Tokenizer as tokenizer
 
 
